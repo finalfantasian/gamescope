@@ -143,7 +143,6 @@ inline std::optional<GamescopeUpscaleFilter> ParseUpscaleFilter( std::string_vie
     return std::nullopt;
 }
 
->>>>>>> origin/master
 extern GamescopeUpscaleFilter g_wantedUpscaleFilter;
 extern GamescopeDownscaleFilter g_wantedDownscaleFilter;
 extern GamescopeUpscaleScaler g_wantedUpscaleScaler;
