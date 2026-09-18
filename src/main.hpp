@@ -97,11 +97,9 @@ enum class GamescopeUpscaleScaler : uint32_t
     STRETCH,
 };
 
-<<<<<<< HEAD
 extern GamescopeUpscaleFilter g_upscaleFilter;
 extern GamescopeDownscaleFilter g_downscaleFilter;
 extern GamescopeUpscaleScaler g_upscaleScaler;
-=======
 struct UpscaleSettings_t
 {
     GamescopeUpscaleFilter eFilter{};
