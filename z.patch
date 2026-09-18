@@ -1,0 +1,175 @@
+From 591a4a43e5292233e11931c322a9b33fc795c31e Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Tue, 8 Sep 2026 17:12:19 -0700
+Subject: [PATCH] color: fix the native gamut blend on HDR10 output
+
+calcColorTransform first converts source RGB to the output color space,
+then blends saturated colors toward the original linear RGB values. That
+endpoint is meant to represent the panel's native primaries. On HDR10
+output those values are instead interpreted as BT.2020, so the blend
+pulls colors toward BT.2020 primaries. This affects SDR on panels
+classified as non-wide-gamut, even at the default gamut wideness.
+
+Convert the native blend target to the output color space before mixing,
+so both endpoints are expressed in BT.2020 for HDR10 output.
+buildSDRColorimetry still selects the source colorimetry and blend
+amounts. The fix is in the later blend. Native output keeps the same
+result, while wide-gamut SDR and PQ input keep their zero-blend
+behavior.
+---
+ src/color_bench.cpp          |  1 +
+ src/color_helpers.cpp        | 11 +++++++-
+ src/color_helpers.h          |  4 +++
+ src/steamcompmgr.cpp         |  1 +
+ tests/test_color_helpers.cpp | 54 ++++++++++++++++++++++++++++++++++++
+ 6 files changed, 72 insertions(+), 2 deletions(-)
+ create mode 100644 tests/test_color_helpers.cpp
+
+diff --git a/src/color_bench.cpp b/src/color_bench.cpp
+index 105898629..b8a7d4048 100644
+--- a/src/color_bench.cpp
++++ b/src/color_bench.cpp
+@@ -40,6 +40,7 @@ static void BenchmarkCalcColorTransform(EOTF inputEOTF, benchmark::State &state)
+     for (auto _ : state) {
+         calcColorTransform<nLutEdgeSize3d>( &lut1d_float, nLutSize1d, &lut3d_float, inputColorimetry, inputEOTF,
+             outputEncodingColorimetry, EOTF_Gamma22,
++            outputEncodingColorimetry,
+             destVirtualWhite, k_EChromaticAdapatationMethod_XYZ,
+             colorMapping, nightmode, tonemapping, nullptr, flGain );
+         for ( size_t i=0, end = lut1d_float.dataR.size(); i<end; ++i )
+diff --git a/src/color_helpers.cpp b/src/color_helpers.cpp
+index 64430a5f0..f59c21903 100644
+--- a/src/color_helpers.cpp
++++ b/src/color_helpers.cpp
+@@ -691,6 +691,7 @@ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
+ 	lut3d_t * pLut3d,
+ 	const displaycolorimetry_t & source, EOTF sourceEOTF,
+ 	const displaycolorimetry_t & dest,  EOTF destEOTF,
++    const displaycolorimetry_t & native,
+     const glm::vec2 & destVirtualWhite, EChromaticAdaptationMethod eMethod,
+     const colormapping_t & mapping, const nightmode_t & nightmode, const tonemapping_t & tonemapping,
+     const lut3d_t * pLook, float flGain )
+@@ -727,6 +728,11 @@ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
+         glm::mat3 xyz_from_source = normalised_primary_matrix( source.primaries, source.white, 1.f );
+         glm::mat3 dest_from_source = dest_from_xyz * xyz_from_source; // XYZ scaling for white point adjustment
+ 
++        // Avoid roundoff when the output encoding is already native.
++        glm::mat3 dest_from_native( 1.f );
++        if ( native != dest )
++            dest_from_native = dest_from_xyz * normalised_primary_matrix( native.primaries, native.white, 1.f );
++
+         // Precalc night mode scalars & digital gain
+         // amount and saturation are overdetermined but we separate the two as they conceptually represent
+         // different quantities, and this preserves forwards algorithmic compatibility
+@@ -794,7 +800,10 @@ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
+                     // float colorSaturation = rgb_to_hsv( sourceColor ).y;
+                     float colorSaturation = rgb_to_hsv( sourceColorLinear ).y;
+                     float amount = cfit( colorSaturation, mapping.blendEnableMinSat, mapping.blendEnableMaxSat, mapping.blendAmountMin, mapping.blendAmountMax );
+-                    destColorLinear = glm::mix( destColorLinear, sourceColorLinear, amount );
++                    // Treat the original linear RGB values as native display RGB,
++                    // then convert to the output color space before blending.
++                    glm::vec3 nativeColorLinear = dest_from_native * sourceColorLinear;
++                    destColorLinear = glm::mix( destColorLinear, nativeColorLinear, amount );
+ 
+                     // Apply linear Mult
+                     destColorLinear = vMultLinear * destColorLinear;
+diff --git a/src/color_helpers.h b/src/color_helpers.h
+index cefa74e40..e3c421ff6 100644
+--- a/src/color_helpers.h
++++ b/src/color_helpers.h
+@@ -364,12 +364,15 @@ std::shared_ptr<lut3d_t> LoadCubeLut( const char *pchFileName, bool &bRaisesBlac
+ //
+ // If the white points differ, this performs an absolute colorimetric match
+ // Look luts are optional, but if specified applied in the sourceEOTF space
++// native defines the display colorimetry for the saturation blend target.
++// dest defines the output colorimetry used by both blend endpoints.
+ 
+ template <uint32_t lutEdgeSize3d>
+ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
+ 	lut3d_t * pLut3d,
+ 	const displaycolorimetry_t & source, EOTF sourceEOTF,
+ 	const displaycolorimetry_t & dest,  EOTF destEOTF,
++	const displaycolorimetry_t & native,
+ 	const glm::vec2 & destVirtualWhite, EChromaticAdaptationMethod eMethod,
+ 	const colormapping_t & mapping, const nightmode_t & nightmode, const tonemapping_t & tonemapping,
+ 	const lut3d_t * pLook, float flGain );
+@@ -378,6 +381,7 @@ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
+ 	lut3d_t * pLut3d,                                                                                                   \
+ 	const displaycolorimetry_t & source, EOTF sourceEOTF,                                                               \
+ 	const displaycolorimetry_t & dest,  EOTF destEOTF,                                                                  \
++	const displaycolorimetry_t & native,                                                                               \
+ 	const glm::vec2 & destVirtualWhite, EChromaticAdaptationMethod eMethod,                                             \
+ 	const colormapping_t & mapping, const nightmode_t & nightmode, const tonemapping_t & tonemapping,                   \
+ 	const lut3d_t * pLook, float flGain )
+diff --git a/src/steamcompmgr.cpp b/src/steamcompmgr.cpp
+index 340459bbd..a608bf543 100644
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -432,6 +432,7 @@ create_color_mgmt_luts(const gamescope_color_mgmt_t& newColorMgmt, gamescope_col
+ 
+ 			calcColorTransform<s_nLutEdgeSize3d>( &g_tmpLut1d, s_nLutSize1d, &g_tmpLut3d, inputColorimetry, inputEOTF,
+ 				outputEncodingColorimetry, newColorMgmt.outputEncodingEOTF,
++				displayColorimetry,
+ 				newColorMgmt.outputVirtualWhite, newColorMgmt.chromaticAdaptationMode,
+ 				colorMapping, newColorMgmt.nightmode, tonemapping, pLook, flGain );
+ 
+diff --git a/tests/test_color_helpers.cpp b/tests/test_color_helpers.cpp
+new file mode 100644
+index 000000000..73c96bf38
+--- /dev/null
++++ b/tests/test_color_helpers.cpp
+@@ -0,0 +1,54 @@
++#include <catch2/catch_test_macros.hpp>
++#include <catch2/generators/catch_generators.hpp>
++
++#include "color_helpers_impl.h"
++
++namespace
++{
++void RequireColor( const glm::vec3 &actual, const glm::vec3 &expected, float tolerance )
++{
++	for ( int channel = 0; channel < 3; ++channel )
++	{
++		INFO( "channel " << channel << ": " << actual[channel] << " expected " << expected[channel] );
++		REQUIRE( std::isfinite( actual[channel] ) );
++		REQUIRE( std::abs( actual[channel] - expected[channel] ) < tolerance );
++	}
++}
++}
++
++TEST_CASE( "SDR saturation targets the panel primaries in an HDR container", "[color_helpers]" )
++{
++	const float wideness = GENERATE( 0.f, 0.5f );
++	CAPTURE( wideness );
++	displaycolorimetry_t source;
++	colormapping_t mapping;
++	buildSDRColorimetry( &source, &mapping, wideness, displaycolorimetry_709 );
++	tonemapping_t tonemapping;
++	tonemapping.g22_luminance = 100.f;
++	lut3d_t lut;
++	calcColorTransform<rendervulkan::s_nLutEdgeSize3d>( nullptr, 0, &lut,
++		source, EOTF_Gamma22, displaycolorimetry_2020, EOTF_PQ, displaycolorimetry_709,
++		glm::vec2( 0.f ), k_EChromaticAdapatationMethod_XYZ,
++		mapping, nightmode_t{}, tonemapping, nullptr, 1.f );
++	const int edge = rendervulkan::s_nLutEdgeSize3d;
++	const int last = edge - 1;
++	struct Sample
++	{
++		int r, g, b;
++		glm::vec3 nits;
++	};
++	// Rec.709 primaries expressed in linear BT.2020 at a 100-nit reference white.
++	const Sample samples[] = {
++		{ last, 0, 0, { 62.74039f, 6.90973f, 1.63914f } },
++		{ 0, last, 0, { 32.92830f, 91.95404f, 8.80132f } },
++		{ 0, 0, last, { 4.33131f, 1.13624f, 89.55954f } },
++		{ last, last, last, { 100.f, 100.f, 100.f } },
++		{ 0, 0, 0, { 0.f, 0.f, 0.f } },
++	};
++	for ( const auto &sample : samples )
++	{
++		CAPTURE( sample.r, sample.g, sample.b );
++		const auto &encoded = lut.data[sample.r + edge * ( sample.g + edge * sample.b )];
++		RequireColor( pq_to_nits( encoded ), sample.nits, 0.02f );
++	}
++}
