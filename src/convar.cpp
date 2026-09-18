@@ -1,6 +1,8 @@
 #include "convar.h"
 #include "Utils/Version.h"
+
 #include <algorithm>
+#include <cassert>
 
 LogScope console_log("console");
 
@@ -8,6 +10,25 @@ extern void PrintGamescopeVersion();
 
 namespace gamescope
 {
+    ConCommand::ConCommand( std::string_view pszName, std::string_view pszDescription, ConCommandFunc func, bool bRegisterScript )
+        : m_pszName{ pszName }
+        , m_pszDescription{ pszDescription }
+        , m_Func{ func }
+    {
+        assert( !GetCommands().contains( pszName ) );
+        GetCommands()[ std::string( pszName ) ] = this;
+
+#if HAVE_SCRIPTING
+        if ( bRegisterScript )
+            RegisterScript( pszName, this );
+#endif
+    }
+
+    ConCommand::~ConCommand()
+    {
+        GetCommands().erase( GetCommands().find( m_pszName ) );
+    }
+
     bool ConCommand::Exec( std::span<std::string_view> args )
     {
         if ( args.size() < 1 )

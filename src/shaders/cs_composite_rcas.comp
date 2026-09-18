@@ -22,12 +22,15 @@ uniform layers_t {
     uint u_c1;
 
 	uint u_shaderFilter;
+    uint u_alphaMode;
 
     // hdr
     float u_linearToNits;
     float u_nitsToLinear;
     float u_itmSdrNits;
     float u_itmTargetNits;
+
+    uint u_rotation;
 };
 
 #include "composite.h"
@@ -83,17 +86,15 @@ void rcasComposite(uvec2 pos)
 
         for (int i = 1; i < c_layerCount; i++) {
             vec4 layerColor = sampleLayer(i, uv);
-            float opacity = u_opacity[i];
-            float layerAlpha = opacity * layerColor.a;
-            outputValue = layerColor.rgb * opacity + outputValue * (1.0f - layerAlpha);
+            outputValue = BlendLayer( i, outputValue, layerColor, u_opacity[i] );
         }
     }
 
     outputValue = encodeOutputColor(outputValue);
-    imageStore(dst, ivec2(pos), vec4(outputValue, 0));
+    imageStore(dst, rotateOutputCoord(pos, u_rotation), vec4(outputValue, 0));
 
     if (checkDebugFlag(compositedebug_Markers))
-        compositing_debug(pos);
+        compositing_debug(pos, u_rotation);
 }
 
 void main()

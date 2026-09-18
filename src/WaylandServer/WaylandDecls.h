@@ -15,4 +15,10 @@ namespace gamescope::WaylandServer
     class CReshadeManager;
     using CReshade = CWaylandProtocol<CReshadeManager>;
 
+    class CGamescopeActionBindingManager;
+    using CGamescopeActionBindingProtocol = CWaylandProtocol<CGamescopeActionBindingManager>;
+
+    class CGamescopeLimiter;
+    using CGamescopeLimiterProtocol = CWaylandProtocol<CGamescopeLimiter>;
+
 }

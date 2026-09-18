@@ -5,6 +5,7 @@ wayland_scanner_path = wayland_scanner_dep.get_variable(pkgconfig: 'wayland_scan
 wayland_scanner = find_program(wayland_scanner_path, native: true)
 
 wayland_protos = dependency('wayland-protocols',
+	version: '>=1.17',
 	fallback: 'wayland-protocols',
 	default_options: ['tests=false'],
 )
@@ -19,8 +20,11 @@ protocols = [
 	wl_protocol_dir / 'staging/single-pixel-buffer/single-pixel-buffer-v1.xml',
 	wl_protocol_dir / 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml',
 	wl_protocol_dir / 'unstable/relative-pointer/relative-pointer-unstable-v1.xml',
+	wl_protocol_dir / 'unstable/primary-selection/primary-selection-unstable-v1.xml',
 	wl_protocol_dir / 'staging/fractional-scale/fractional-scale-v1.xml',
 	wl_protocol_dir / 'staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml',
+
+	'color-management-v1.xml',
 
 	# Wayland Protocols not yet in a release.
 	'xdg-toplevel-icon-v1.xml',
@@ -35,13 +39,12 @@ protocols = [
 	'gamescope-control.xml',
 	'gamescope-reshade.xml',
 	'gamescope-swapchain.xml',
+	'gamescope-limiter.xml',
 	'gamescope-private.xml',
+	'gamescope-action-binding.xml',
 
 	# wlroots protocols
 	'wlr-layer-shell-unstable-v1.xml',
-
-	# WIP protocols
-	'xx-color-management-v3.xml',
 ]
 
 protocols_client_src = []

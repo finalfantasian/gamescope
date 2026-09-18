@@ -17,11 +17,18 @@ If running RadeonSI clients with older cards (GFX8 and below), currently have to
 
 ## Building
 
+Dependent first (**Debian/Debian-based**):
+```
+apt install meson ninja-build pkg-config cmake libpipewire-0.3-dev hwdata libx11-dev libwayland-dev libvulkan-dev wayland-protocols libx11-xcb-dev libxdamage-dev libxcomposite-dev libxcursor-dev libxxf86vm-dev libxtst-dev libxres-dev libxmu-dev libxkbcommon-dev libcap-dev libsdl2-dev libavif-dev libpixman-1-dev liblcms2-dev libseat-dev libinput-dev xwayland libxcb-composite0-dev libxcb-ewmh-dev libxcb-icccm4-dev libxcb-res0-dev glslang-tools libluajit-5.1-dev libcatch2-dev
+```
+
+Build with:
+
 ```
 git submodule update --init
-meson build/
+meson setup build/
 ninja -C build/
-build/gamescope -- <game>
+build/src/gamescope -- <game>
 ```
 
 Install with:
@@ -67,6 +74,7 @@ See `gamescope --help` for a full list of options.
 * `-F fsr`: use AMD FidelityFX™ Super Resolution 1.0 for upscaling
 * `-F nis`: use NVIDIA Image Scaling v1.0.3 for upscaling
 * `-F bicubic`: use a bicubic filter for downscaling
+* `-F sgsr`: use Snapdragon™ Game Super Resolution 1 with RCAS sharpening for upscaling
 * `-S integer`: use integer scaling.
 * `-S stretch`: use stretch scaling, the game will fill the window. (e.g. 4:3 to 16:9)
 * `-b`: create a border-less window.
@@ -89,4 +97,4 @@ Pull requests for improving Reshade compatibility support are appreciated.
 
 ## Status of Gamescope Packages
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/gamescope.svg)](https://repology.org/project/gamescope/versions)
+[![Packaging status](https://repology.org/badge/vertical-allrepos/gamescope.svg?exclude_unsupported=1)](https://repology.org/project/gamescope/versions)

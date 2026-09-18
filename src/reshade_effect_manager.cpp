@@ -4,6 +4,7 @@
 
 #include "reshade_effect_manager.hpp"
 #include "log.hpp"
+#include "Utils/DirHelpers.h"
 
 #include "steamcompmgr.hpp"
 
@@ -13,17 +14,12 @@
 #include "gamescope-reshade-protocol.h"
 
 #include "reshade_api_format.hpp"
-#include "convar.h"
 
 #include <stb_image.h>
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_resize.h>
 
 #include <mutex>
-#include <unistd.h>
-#include <sys/types.h>
-#include <pwd.h>
-#include <iostream>
 
 // This is based on wl_array_for_each from `wayland-util.h` in the Wayland client library.
 #define uint8_array_for_each(pos, data, size) \
@@ -34,22 +30,7 @@ static std::function<void(const char*)> g_effectReadyCallback = nullptr;
 static auto g_runtimeUniforms = std::unordered_map<std::string, uint8_t*>();
 static std::mutex g_runtimeUniformsMutex;
 
-const char *homedir;
-
-static std::string GetLocalUsrDir()
-{
-    const char *homedir = nullptr;
-
-    if ((homedir = getenv("HOME")) == nullptr)
-        homedir = getpwuid(getuid())->pw_dir;
-
-    return std::string(homedir) + "/.local";
-}
-
-static std::string GetUsrDir()
-{
-    return "/usr";
-}
+extern int g_nOutputRefresh;
 
 static LogScope reshade_log("gamescope_reshade");
 
@@ -92,6 +73,17 @@ public:
     FrameCountUniform(reshadefx::uniform_info uniformInfo);
     virtual void update(void* mappedBuffer) override;
     virtual ~FrameCountUniform();
+
+private:
+    int32_t count = 0;
+};
+
+class RefreshRateUniform : public ReshadeUniform
+{
+public:
+    RefreshRateUniform(reshadefx::uniform_info uniformInfo);
+    virtual void update(void* mappedBuffer) override;
+    virtual ~RefreshRateUniform();
 
 private:
     int32_t count = 0;
@@ -288,6 +280,20 @@ void FrameCountUniform::update(void* mappedBuffer)
     count++;
 }
 FrameCountUniform::~FrameCountUniform()
+{
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+RefreshRateUniform::RefreshRateUniform(reshadefx::uniform_info uniformInfo)
+    : ReshadeUniform(uniformInfo)
+{
+}
+void RefreshRateUniform::update(void* mappedBuffer)
+{
+    uint32_t unRefreshRateMhz = (uint32_t)g_nOutputRefresh;
+    copy(mappedBuffer, &unRefreshRateMhz);
+}
+RefreshRateUniform::~RefreshRateUniform()
 {
 }
 
@@ -606,7 +612,7 @@ DataUniform::~DataUniform()
 {
 }
 
-static std::vector<std::shared_ptr<ReshadeUniform>> createReshadeUniforms(const reshadefx::module& module)
+static std::vector<std::shared_ptr<ReshadeUniform>> createReshadeUniforms(const reshadefx::module& module, uint32_t *pFlags)
 {
     std::vector<std::shared_ptr<ReshadeUniform>> uniforms;
     for (auto& uniform : module.uniforms)
@@ -627,6 +633,10 @@ static std::vector<std::shared_ptr<ReshadeUniform>> createReshadeUniforms(const 
             else if (source == "framecount")
             {
                 uniforms.push_back(std::make_shared<FrameCountUniform>(uniform));
+            }
+            else if (source == "gamescope_refresh_mhz")
+            {
+                uniforms.push_back(std::make_shared<RefreshRateUniform>(uniform));
             }
             else if (source == "date")
             {
@@ -663,6 +673,10 @@ static std::vector<std::shared_ptr<ReshadeUniform>> createReshadeUniforms(const 
             else if (source == "bufready_depth")
             {
                 uniforms.push_back(std::make_shared<DepthUniform>(uniform));
+            }
+            else if (source == "gamescope_always_paint")
+            {
+                ( *pFlags ) |= ReshadeEffectFlag::AlwaysScanout;
             }
             else if (!source.empty())
             {
@@ -924,8 +938,8 @@ bool ReshadeEffectPipeline::init(CVulkanDevice *device, const ReshadeEffectKey &
 
     std::string gamescope_reshade_share_path = "/share/gamescope/reshade";
 
-    std::string local_reshade_path = GetLocalUsrDir() + gamescope_reshade_share_path;
-    std::string global_reshade_path = GetUsrDir() + gamescope_reshade_share_path;
+    std::string local_reshade_path = gamescope::GetLocalUsrDir() + gamescope_reshade_share_path;
+    std::string global_reshade_path = gamescope::GetUsrDir() + gamescope_reshade_share_path;
 
     pp.add_include_path(local_reshade_path + "/Shaders");
 	pp.add_include_path(global_reshade_path + "/Shaders");
@@ -1050,7 +1064,7 @@ bool ReshadeEffectPipeline::init(CVulkanDevice *device, const ReshadeEffectKey &
     }
 
     // Create Uniforms
-    m_uniforms = createReshadeUniforms(*m_module);
+    m_uniforms = createReshadeUniforms(*m_module, &m_flags);
 
     // Create Textures
     {
